@@ -25,6 +25,7 @@ class ConfigLoader:
                         "instance_id": {"type": "string"},
                         "link": {"type": "string"},
                         "profile": {"type": "string"},
+                        "autostart": {"type": "boolean"},
                     },
                     "required": [
                         "target_host",

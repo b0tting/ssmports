@@ -109,6 +109,7 @@ The application relies on a `sessions.json` file in the root directory to define
 | `instance_id` | Connection | Yes | The ID of the SSM-enabled EC2 instance acting as the bastion. |
 | `profile` | Connection | No | Override the `default_profile` for this specific connection. |
 | `link` | Connection | No | A URL that will appear as a clickable "Open Link" button. Supports `{local_port}` and `{remote_port}` placeholders. |
+| `autostart` | Connection | No | If `true`, the session starts automatically when the GUI launches. |
 
 ## Usage
 

@@ -5,7 +5,8 @@
       "target_host": "your-db-endpoint.cluster-xyz.eu-west-1.rds.amazonaws.com",
       "local_port": 5432,
       "remote_port": 5432,
-      "instance_id": "i-0123456789abcdef0"
+      "instance_id": "i-0123456789abcdef0",
+      "autostart": true
     },
     "web-service-with-link": {
       "target_host": "internal-service.local",

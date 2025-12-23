@@ -42,12 +42,14 @@ class SSMPortForwarderGUI:
         self.active_session_ids = {}  # label -> session_id
         self.buttons = {}  # label -> {start_btn, stop_btn}
         self.ssm_clients = {}  # profile_name -> ssm_client
+        self._autostart_triggered = False
 
         self.log_queue = queue.Queue()
         self._setup_ui()
         self._load_config()
         self._init_forwarder()
         self._render_connections()
+        self.root.after(0, self._autostart_sessions)
         self.root.after(100, self._process_logs)
 
     def _setup_ui(self):
@@ -233,6 +235,16 @@ class SSMPortForwarderGUI:
             if label in self.active_session_ids:
                 self._update_ui_to_active(label)
 
+    def _autostart_sessions(self):
+        """Start any sessions marked with autostart on initial launch."""
+        if self._autostart_triggered:
+            return
+        self._autostart_triggered = True
+
+        for label, config in self.session_configs.items():
+            if config.get("autostart") and label not in self.active_session_ids:
+                self._start_session(label)
+
     def _update_ui_to_active(self, label):
         self.buttons[label]["start"].config(state="disabled", text="Start")
         self.buttons[label]["stop"].config(state="normal", text="Stop")
@@ -256,7 +268,9 @@ class SSMPortForwarderGUI:
             try:
                 # Filter out 'profile' and 'link' from config before passing to start_session
                 session_params = {
-                    k: v for k, v in config.items() if k not in ["profile", "link"]
+                    k: v
+                    for k, v in config.items()
+                    if k not in ["profile", "link", "autostart"]
                 }
                 sid = self.forwarder.start_session(
                     ssm_client=ssm_client, label=label, **session_params
