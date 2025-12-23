@@ -1,0 +1,19 @@
+{
+  "default_profile": "your-aws-profile",
+  "connections": {
+    "my-rds-database": {
+      "target_host": "your-db-endpoint.cluster-xyz.eu-west-1.rds.amazonaws.com",
+      "local_port": 5432,
+      "remote_port": 5432,
+      "instance_id": "i-0123456789abcdef0"
+    },
+    "web-service-with-link": {
+      "target_host": "internal-service.local",
+      "local_port": 8080,
+      "remote_port": 80,
+      "instance_id": "i-0123456789abcdef0",
+      "link": "http://localhost:{local_port}/dashboard",
+      "profile": "alternative-profile"
+    }
+  }
+}
