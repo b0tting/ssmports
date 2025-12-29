@@ -17,6 +17,7 @@ dependencies = [
 
 [tool.poetry.group.dev.dependencies]
 pytest = "*"
+pillow = "*"
 
 [tool.pytest.ini_options]
 addopts = "-ra -q"

@@ -42,7 +42,7 @@ class TestConfigLoader:
 
     def test_load_config_file_not_found(self):
         loader = ConfigLoader("nonexistent.json")
-        with pytest.raises(SSMPortForwardError, match="Config file not found"):
+        with pytest.raises(SSMPortForwardError, match="Failed to create AWS session"):
             loader.load_config()
 
     def test_load_config_invalid_json(self):

@@ -13,6 +13,34 @@ from .exceptions import SSMPortForwardError
 
 
 class ConfigLoader:
+    DEFAULT_CONFIG = """{
+      "profile": "my-jump-account",
+      "region": "eu-west-1",
+      "jump_instance": "my-bastion-container",
+      "connections": {
+        "Production Database": {
+          "target_host": "prod-db.cluster-xxxx.eu-west-1.rds.amazonaws.com",
+          "local_port": 5432,
+          "remote_port": 5432,
+          "autostart": true
+        },
+        "Staging Database": {
+          "target_host": "test-db.cluster-xxxx.eu-west-1.rds.amazonaws.com",
+          "local_port": 5433,
+          "remote_port": 5432,
+          "profile": "my-test-account",
+          "jump_instance": "i-0123456789abcdef0"
+        },
+        "Staging Database over ECS": {
+          "target_host": "test-db.cluster-xxxx.eu-west-1.rds.amazonaws.com",
+          "local_port": 5434,
+          "remote_port": 5432,
+          "profile": "my-test-account",
+          "jump_instance": "ecs:my-cluster_12345678901234567890123456789012_12345678901234567890123456789012-0151737364"
+        }
+      }
+    }"""
+
     SCHEMA = {
         "type": "object",
         "properties": {
@@ -104,10 +132,19 @@ class ConfigLoader:
                 if key not in connection:
                     connection[key] = value
 
+    def create_default_config_file(self, config_path):
+        if not os.path.exists(config_path):
+            with open(config_path, "w") as f:
+                f.write(self.DEFAULT_CONFIG)
+            full_path = os.path.abspath(config_path)
+            print(
+                f"No sessions.json found, created default configuration at {full_path}"
+            )
+
     def load_config(self):
         """Load and return the configuration from a JSON file."""
         if not os.path.exists(self.config_path):
-            raise SSMPortForwardError(f"Config file not found: {self.config_path}")
+            self.create_default_config_file(self.config_path)
 
         with open(self.config_path, "r") as f:
             try:
