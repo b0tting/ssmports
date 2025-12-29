@@ -14,6 +14,12 @@ from src.checker import ConfigChecker
 import datetime
 
 
+def resource_path(relative_path):
+    if hasattr(sys, "_MEIPASS"):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.join(os.path.abspath("."), relative_path)
+
+
 class StdoutRedirector:
     def __init__(self, text_widget, log_queue):
         self.text_widget = text_widget
@@ -36,7 +42,7 @@ class SSMPortForwarderGUI:
         self.root = root
         self.root.title("SSM Port Forwarder")
         self.root.geometry("800x600")
-
+        self.root.iconbitmap(resource_path("ssmports.ico"))
         self.checker = ConfigChecker()
         self.aws_sessions: AWSSessions | None = None
         self.forwarder = SSMPortForwarder()
