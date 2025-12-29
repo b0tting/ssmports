@@ -7,7 +7,7 @@ Some key features:
 - **Profile Support**: Use different AWS profiles for each connection.
 - **Link Integration**: Define clickable links (e.g., for web consoles)
 
-[![SSM Port Forwarder Screenshot](img/creenshot.png)](img/screenshot.png)
+[![SSM Port Forwarder Screenshot](img/screenshot.png)](img/screenshot.png)
 
 ## Attribution
 The core code was based on a Github request (https://github.com/boto/boto3/issues/3555) made by @JGoutin 
