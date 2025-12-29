@@ -5,7 +5,8 @@ import sys
 import queue
 import webbrowser
 import os
-from boto3.session import Session
+
+from src.aws_sessions import AWSSessions
 from src.forwarder import SSMPortForwarder
 from src.config_loader import ConfigLoader
 from src.checker import ConfigChecker
@@ -37,17 +38,17 @@ class SSMPortForwarderGUI:
         self.root.geometry("800x600")
 
         self.checker = ConfigChecker()
-        self.forwarder = None
-        self.session_configs = {}
+        self.aws_sessions: AWSSessions | None = None
+        self.forwarder = SSMPortForwarder()
+        self.connections = {}
         self.active_session_ids = {}  # label -> session_id
         self.buttons = {}  # label -> {start_btn, stop_btn}
-        self.ssm_clients = {}  # profile_name -> ssm_client
+        self.ssm_clients = {}
         self._autostart_triggered = False
 
         self.log_queue = queue.Queue()
         self._setup_ui()
         self._load_config()
-        self._init_forwarder()
         self._render_connections()
         self.root.after(0, self._autostart_sessions)
         self.root.after(100, self._process_logs)
@@ -128,13 +129,13 @@ class SSMPortForwarderGUI:
         try:
             config_path = "sessions.json"
             loader = ConfigLoader(config_path)
-            config = loader.load_config()
-            self.session_configs = config.get("connections", {})
-            self.default_profile = config.get("default_profile", "default")
+            config, self.aws_sessions = loader.load_config()
+            self.connections = config.get("connections", {})
             abs_path = os.path.abspath(config_path)
             print(f"Loaded configuration from: {abs_path}")
         except Exception as e:
             print(f"Error loading config: {e}")
+            # Print real stacktrace to log
             messagebox.showerror("Config Error", str(e))
 
     def _reload_config(self):
@@ -144,33 +145,6 @@ class SSMPortForwarderGUI:
         self._render_connections()
         print("Configuration reloaded.")
 
-    def _init_forwarder(self, profile=None):
-        profile = profile or self.default_profile
-        try:
-            if not self.checker.check_session_manager_plugin():
-                print("Error: session-manager-plugin is not installed.")
-                return None
-
-            if profile in self.ssm_clients:
-                return self.ssm_clients[profile]
-
-            session = Session(profile_name=profile)
-            if not self.checker.check_aws_credentials(session):
-                print(f"Error: Invalid AWS credentials for profile '{profile}'.")
-                return None
-
-            ssm = session.client("ssm")
-            self.ssm_clients[profile] = ssm
-            print(f"Successfully initialized AWS profile '{profile}'.")
-
-            if self.forwarder is None:
-                self.forwarder = SSMPortForwarder(ssm)
-
-            return ssm
-        except Exception as e:
-            print(f"Initialization error for profile '{profile}': {e}")
-            return None
-
     def _render_connections(self):
         # Clear existing connections
         for widget in self.connections_container.winfo_children():
@@ -178,10 +152,10 @@ class SSMPortForwarderGUI:
         self.buttons = {}
 
         # Sort labels for consistent display
-        sorted_labels = sorted(self.session_configs.keys())
+        sorted_labels = sorted(self.connections.keys())
 
         for label in sorted_labels:
-            config = self.session_configs[label]
+            config = self.connections[label]
             frame = tk.Frame(self.connections_container)
             frame.pack(fill="x", pady=2)
 
@@ -241,7 +215,7 @@ class SSMPortForwarderGUI:
             return
         self._autostart_triggered = True
 
-        for label, config in self.session_configs.items():
+        for label, config in self.connections.items():
             if config.get("autostart") and label not in self.active_session_ids:
                 self._start_session(label)
 
@@ -250,30 +224,25 @@ class SSMPortForwarderGUI:
         self.buttons[label]["stop"].config(state="normal", text="Stop")
 
     def _start_session(self, label):
-        config = self.session_configs[label]
-        profile = config.get("profile", self.default_profile)
-        ssm_client = self._init_forwarder(profile)
-
-        if ssm_client is None:
-            messagebox.showerror(
-                "Error",
-                f"Forwarder not initialized. Check AWS credentials for profile '{profile}'.",
-            )
-            return
+        connection = self.connections[label]
+        session = self.aws_sessions.get_session(
+            profile_name=connection["profile"], region_name=connection.get("region")
+        )
+        ssm_client = session.client("ssm")
 
         self.buttons[label]["start"].config(state="disabled", text="Starting...")
 
         def run():
-            print(f"Starting session for {label} using profile '{profile}'...")
+            if connection["profile"]:
+                print(
+                    f"Starting session for {label} using profile '{connection.get("profile")}'..."
+                )
+            else:
+                print(f"Starting session for {label} using AWS default role...")
             try:
                 # Filter out 'profile' and 'link' from config before passing to start_session
-                session_params = {
-                    k: v
-                    for k, v in config.items()
-                    if k not in ["profile", "link", "autostart"]
-                }
                 sid = self.forwarder.start_session(
-                    ssm_client=ssm_client, label=label, **session_params
+                    ssm_client=ssm_client, label=label, **connection
                 )
                 self.active_session_ids[label] = sid
                 print(f"Session started: {sid} for {label}")

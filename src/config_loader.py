@@ -1,5 +1,8 @@
 import json
 import os
+import re
+from .aws_sessions import AWSSessions
+from .ecs_id_resolver import ECSIDResolver
 
 try:
     import jsonschema
@@ -13,7 +16,9 @@ class ConfigLoader:
     SCHEMA = {
         "type": "object",
         "properties": {
-            "default_profile": {"type": "string"},
+            "profile": {"type": "string"},
+            "region": {"type": "string"},
+            "jump_instance": {"type": "string"},
             "connections": {
                 "type": "object",
                 "additionalProperties": {
@@ -31,7 +36,6 @@ class ConfigLoader:
                         "target_host",
                         "local_port",
                         "remote_port",
-                        "instance_id",
                     ],
                 },
             },
@@ -41,6 +45,64 @@ class ConfigLoader:
 
     def __init__(self, config_path):
         self.config_path = config_path
+        self.ecs_id_resolver = ECSIDResolver()
+        self.aws_sessions = AWSSessions()
+
+    def validate_schema(self, config):
+        try:
+            jsonschema.validate(instance=config, schema=self.SCHEMA)
+        except jsonschema.exceptions.ValidationError as e:
+            raise SSMPortForwardError(f"Configuration validation failed: {e.message}")
+
+    def validate_no_double_ports(self, config):
+        local_ports = []
+        connections = config.get("connections", {})
+        for name, conn in connections.items():
+            port = conn.get("local_port")
+            if port in local_ports:
+                raise SSMPortForwardError(
+                    f"Duplicate local_port found: {port} in connection '{name}'"
+                )
+            local_ports.append(port)
+
+    def validate_instance_id(self, instance_id):
+        ec2_instance_regex = r"^i-[0-9a-fA-F]{8,17}$"
+        # See https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-sessions-start.html
+        # for ECS instance format
+        ecs_instance_regex = (
+            r"^ecs:[A-Za-z0-9-]{1,255}_[a-f0-9]{32}_[a-f0-9]{32}-[\d]{10}$"
+        )
+        if not re.match(ec2_instance_regex, instance_id) and not re.match(
+            ecs_instance_regex, instance_id
+        ):
+            raise SSMPortForwardError(f"Invalid instance_id format: {instance_id}")
+
+    def validate_or_load_instance_ids(self, config):
+        for name in config.get("connections", {}):
+            connection = config["connections"][name]
+            instance_id = connection.get("jump_instance", "")
+            try:
+                self.validate_instance_id(instance_id)
+            except SSMPortForwardError:
+                session = self.aws_sessions.get_session(
+                    profile_name=connection.get("profile"),
+                    region_name=connection.get("region"),
+                )
+                connection["jump_instance"] = self.ecs_id_resolver.resolve_task_name(
+                    connection["jump_instance"], session.client("ecs")
+                )
+
+    def fold_defaults_into_connections(self, config):
+        defaults = {}
+        for default in ["profile", "region", "jump_instance"]:
+            if default in config:
+                defaults[default] = config[default]
+
+        for name in config["connections"]:
+            connection = config["connections"][name]
+            for key, value in defaults.items():
+                if key not in connection:
+                    connection[key] = value
 
     def load_config(self):
         """Load and return the configuration from a JSON file."""
@@ -53,30 +115,9 @@ class ConfigLoader:
             except json.JSONDecodeError as e:
                 raise SSMPortForwardError(f"Failed to parse JSON config: {e}")
 
-        # Validate with jsonschema if available
-        if jsonschema:
-            try:
-                jsonschema.validate(instance=config, schema=self.SCHEMA)
-            except jsonschema.exceptions.ValidationError as e:
-                raise SSMPortForwardError(
-                    f"Configuration validation failed: {e.message}"
-                )
+        self.validate_schema(config)
+        self.fold_defaults_into_connections(config)
+        self.validate_no_double_ports(config)
+        self.validate_or_load_instance_ids(config)
 
-        # Custom check for unique local_port numbers
-        local_ports = []
-        connections = config.get("connections", {})
-        for name, conn in connections.items():
-            port = conn.get("local_port")
-            if port in local_ports:
-                raise SSMPortForwardError(
-                    f"Duplicate local_port found: {port} in connection '{name}'"
-                )
-            local_ports.append(port)
-
-        return config
-
-    def get_sessions(self):
-        """Retrieve the list of session configurations."""
-        config = self.load_config()
-        connections = config.get("connections", {})
-        return list(connections.values())
+        return config, self.aws_sessions

@@ -53,7 +53,18 @@ If your role has admin access or a broad policy this won't be required, but if n
             "Resource": [
                 "arn:aws:ssm:*:*:session/${aws:userid}-*"
             ]
-        }
+        },{
+          "Sid": "AllowContainerIdLookup",
+          "Effect": "Allow",
+            "Action": [
+                "ecs:ListClusters",
+                "ecs:DescribeClusters",
+                "ecs:ListTasks",
+                "ecs:DescribeTasks",
+                "ecs:DescribeContainerInstances"
+            ],
+            "Resource": "*"
+      }
     ]
 }
 ```
@@ -75,23 +86,44 @@ The application relies on a `sessions.json` file in the root directory to define
 
 ### Example Configuration
 
+This is a simple configuration that defines a single connection to a production database through a bastion host:
 ```json
 {
-  "default_profile": "my-default-profile",
   "connections": {
     "Production Database": {
       "target_host": "prod-db.cluster-xxxx.eu-west-1.rds.amazonaws.com",
       "local_port": 5432,
       "remote_port": 5432,
-      "instance_id": "i-0123456789abcdef0"
+      "profile": "my-default-profile",
+      "region": "eu-west-1",
+      "jump_instance": "i-0123456789abcdef0"
+    }
+  }
+}
+```
+
+You can also pull up the profile, region and jump instance from your AWS configuration to set them as defaults. The jump_instance can be either an EC2 instance ID, an ECS instance ID (see https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-sessions-start.html#sessions-remote-port-forwarding) or a specific container name. 
+
+If a container name is used the tool will attempt to resolve the container to the underlying EC2 instance ID, optionally using the profile and region provided. It will take the first result if multiple containers with the same name are found.
+
+Here is a more complete example:
+```json
+{
+  "profile": "my-jump-account",
+  "region": "eu-west-1",
+  "jump_instance": "my-bastion-container",
+  "connections": {
+    "Production Database": {
+      "target_host": "prod-db.cluster-xxxx.eu-west-1.rds.amazonaws.com",
+      "local_port": 5432,
+      "remote_port": 5432
     },
-    "Staging Web Console": {
-      "target_host": "staging-internal.local",
-      "local_port": 8080,
-      "remote_port": 80,
-      "instance_id": "i-0abcdef1234567890",
-      "profile": "staging-profile",
-      "link": "http://localhost:{local_port}/dashboard"
+    "Staging Database": {
+      "target_host": "test-db.cluster-xxxx.eu-west-1.rds.amazonaws.com",
+      "local_port": 5433,
+      "remote_port": 5432,
+      "profile": "my-test-account",
+      "jump_instance": "ecs:my-cluster_12345678901234567890123456789012_12345678901234567890123456789012-0151737364"
     }
   }
 }
@@ -99,17 +131,17 @@ The application relies on a `sessions.json` file in the root directory to define
 
 ### Attributes
 
-| Attribute | Level | Required | Description |
-| :--- | :--- | :--- | :--- |
-| `default_profile` | Root | No | The AWS profile to use if a connection doesn't specify one. |
-| `connections` | Root | Yes | A dictionary of connection objects. The key is the label shown in the UI. |
-| `target_host` | Connection | Yes | The remote hostname or IP to connect to (e.g., RDS endpoint). |
-| `local_port` | Connection | Yes | The port on your local machine to bind the tunnel to. |
-| `remote_port` | Connection | Yes | The port on the remote host to forward to. |
-| `instance_id` | Connection | Yes | The ID of the SSM-enabled EC2 instance acting as the bastion. |
-| `profile` | Connection | No | Override the `default_profile` for this specific connection. |
-| `link` | Connection | No | A URL that will appear as a clickable "Open Link" button. Supports `{local_port}` and `{remote_port}` placeholders. |
-| `autostart` | Connection | No | If `true`, the session starts automatically when the GUI launches. |
+| Attribute       | Level             | Required | Description                                                                                                         |
+|:----------------|:------------------| :--- |:--------------------------------------------------------------------------------------------------------------------|
+| `connections`   | Root              | Yes | A dictionary of connection objects. The key is the label shown in the UI.                                           |
+| `target_host`   | Connection        | Yes | The remote hostname or IP to connect to (e.g., RDS endpoint).                                                       |
+| `local_port`    | Connection        | Yes | The port on your local machine to bind the tunnel to.                                                               |
+| `remote_port`   | Connection        | Yes | The port on the remote host to forward to.                                                                          |
+| `jump_instance` | Connection / Root | Yes | The ID of the SSM-enabled EC2 instance acting as the bastion.                                                       |
+| `profile`       | Connection / Root | No | AWS Profile to use to connect to the jump instance                                                                  |
+| `region`        | Connection / Root | No | AWS Region for the jump instance                                                                                    |
+| `link`          | Connection        | No | A URL that will appear as a clickable "Open Link" button. Supports `{local_port}` and `{remote_port}` placeholders. |
+| `autostart`     | Connection        | No | If `true`, the session starts automatically when the GUI launches.                                                  |
 
 ## Usage
 

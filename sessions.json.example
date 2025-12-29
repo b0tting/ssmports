@@ -1,20 +1,27 @@
 {
-  "default_profile": "your-aws-profile",
+  "profile": "my-jump-account",
+  "region": "eu-west-1",
+  "jump_instance": "my-bastion-container",
   "connections": {
-    "my-rds-database": {
-      "target_host": "your-db-endpoint.cluster-xyz.eu-west-1.rds.amazonaws.com",
+    "Production Database": {
+      "target_host": "prod-db.cluster-xxxx.eu-west-1.rds.amazonaws.com",
       "local_port": 5432,
       "remote_port": 5432,
-      "instance_id": "i-0123456789abcdef0",
       "autostart": true
     },
-    "web-service-with-link": {
-      "target_host": "internal-service.local",
-      "local_port": 8080,
-      "remote_port": 80,
-      "instance_id": "i-0123456789abcdef0",
-      "link": "http://localhost:{local_port}/dashboard",
-      "profile": "alternative-profile"
+    "Staging Database": {
+      "target_host": "test-db.cluster-xxxx.eu-west-1.rds.amazonaws.com",
+      "local_port": 5433,
+      "remote_port": 5432,
+      "profile": "my-test-account",
+      "jump_instance": "i-0123456789abcdef0"
+    },
+    "Staging Database over ECS": {
+      "target_host": "test-db.cluster-xxxx.eu-west-1.rds.amazonaws.com",
+      "local_port": 5434,
+      "remote_port": 5432,
+      "profile": "my-test-account",
+      "jump_instance": "jump_instance": "ecs:my-cluster_12345678901234567890123456789012_12345678901234567890123456789012-0151737364"
     }
   }
 }
