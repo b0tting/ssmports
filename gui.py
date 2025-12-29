@@ -63,6 +63,9 @@ class SSMPortForwarderGUI:
         )
         self.reload_btn.pack(side="left")
 
+        self.help_btn = tk.Button(controls_frame, text="Help", command=self._open_help)
+        self.help_btn.pack(side="left", padx=(10, 0))
+
         # Connection List Frame
         list_frame = tk.LabelFrame(self.root, text="Connections", padx=10, pady=10)
         list_frame.pack(fill="both", expand=True, padx=10, pady=5)
@@ -293,6 +296,9 @@ class SSMPortForwarderGUI:
         if self.forwarder:
             self.forwarder.stop_all()
         self.root.destroy()
+
+    def _open_help(self):
+        webbrowser.open("https://github.com/b0tting/ssmports")
 
 
 if __name__ == "__main__":
