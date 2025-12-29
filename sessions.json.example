@@ -21,7 +21,7 @@
       "local_port": 5434,
       "remote_port": 5432,
       "profile": "my-test-account",
-      "jump_instance": "jump_instance": "ecs:my-cluster_12345678901234567890123456789012_12345678901234567890123456789012-0151737364"
+      "jump_instance": "ecs:my-cluster_12345678901234567890123456789012_12345678901234567890123456789012-0151737364"
     }
   }
 }

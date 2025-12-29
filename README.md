@@ -156,3 +156,27 @@ Here is a more complete example:
 4.  Click **Start** to open a tunnel.
 5.  Click **Open Link** (if configured) to access the service.
 6.  Click **Reload Config** if you make changes to `sessions.json` while the app is running.
+
+## Building a Standalone Executable
+
+To create a standalone executable that doesn't require Python to be installed:
+
+1. Ensure you have the development dependencies installed:
+   ```bash
+   poetry install --with dev
+   ```
+
+2. Run the build script:
+   ```bash
+   build.bat
+   ```
+
+   Or manually:
+   ```bash
+   pip install https://github.com/pyinstaller/pyinstaller/archive/develop.zip
+   pyinstaller ssmports.spec
+   ```
+
+3. The executable will be created in the `dist/` directory as `ssmports.exe`.
+
+Note: The executable includes all necessary dependencies and data files, making it portable.
