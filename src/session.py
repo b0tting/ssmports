@@ -13,12 +13,14 @@ class SSMSession:
     def __init__(
         self,
         ssm_client,
+        logger,
         label: str = None,
         check_connection: bool = True,
         timeout: int = 60,
         **kwargs,
     ):
         self.ssm = ssm_client
+        self.logger = logger
         self.label = label
         self.check_connection = check_connection
         self.timeout = timeout
@@ -27,7 +29,7 @@ class SSMSession:
 
     def _log(self, message):
         prefix = f"[{self.label}] " if self.label else ""
-        print(f"{prefix}{message}")
+        self.logger.info(f"{prefix}{message}")
 
     def __enter__(self):
         self._log(f"Starting SSM session for target: {self.kwargs.get('Target')}")

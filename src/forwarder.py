@@ -4,7 +4,8 @@ from .exceptions import SSMPortForwardError
 
 
 class SSMPortForwarder:
-    def __init__(self):
+    def __init__(self, logger=None):
+        self.logger = logger
         self.active_sessions = (
             {}
         )  # {session_id: {"thread": thread, "stop_event": event, "config": config}}
@@ -21,11 +22,11 @@ class SSMPortForwarder:
 
         # Either create a new SSM client because a different profile/region is needed,
         # or use the default one
-
         def run():
             try:
                 with SSMSession(
                     ssm_client,
+                    logger=self.logger,
                     label=label,
                     Target=instance_id,
                     DocumentName="AWS-StartPortForwardingSessionToRemoteHost",

@@ -1,3 +1,4 @@
+import logging
 import tkinter as tk
 from tkinter import scrolledtext, messagebox
 import threading
@@ -5,13 +6,17 @@ import sys
 import queue
 import webbrowser
 import os
+import re
 
 from src.aws_sessions import AWSSessions
 from src.forwarder import SSMPortForwarder
 from src.config_loader import ConfigLoader
 from src.checker import ConfigChecker
 
-import datetime
+try:
+    from src.version import VERSION
+except ImportError:
+    VERSION = ""
 
 
 def resource_path(relative_path):
@@ -20,17 +25,27 @@ def resource_path(relative_path):
     return os.path.join(os.path.abspath("."), relative_path)
 
 
-class StdoutRedirector:
-    def __init__(self, text_widget, log_queue):
-        self.text_widget = text_widget
+class TextWidgetHandler(logging.Handler):
+    def __init__(self, log_queue):
+        super().__init__()
         self.log_queue = log_queue
+        self.setFormatter(
+            logging.Formatter("%(asctime)s - %(message)s", datefmt="%H:%M:%S")
+        )
 
-    def write(self, string):
-        if string.strip():
-            timestamp = datetime.datetime.now().strftime("%H:%M:%S")
-            self.log_queue.put(f"[{timestamp}] {string}")
-        else:
-            self.log_queue.put(string)
+    def emit(self, record):
+        msg = self.format(record)
+        self.log_queue.put(msg + "\n")
+
+
+class LoggerWriter:
+    def __init__(self, logger, level):
+        self.logger = logger
+        self.level = level
+
+    def write(self, message):
+        if message.strip():
+            self.logger.log(self.level, message.strip())
 
     def flush(self):
         pass
@@ -40,19 +55,21 @@ class StdoutRedirector:
 class SSMPortForwarderGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("SSM Port Forwarder")
+        self.root.title(f"SSM Port Forwarder {VERSION}")
         self.root.geometry("800x600")
         self.root.iconbitmap(resource_path("ssmports.ico"))
         self.checker = ConfigChecker()
         self.aws_sessions: AWSSessions | None = None
-        self.forwarder = SSMPortForwarder()
+        self.forwarder = SSMPortForwarder(logger)
         self.connections = {}
         self.active_session_ids = {}  # label -> session_id
         self.buttons = {}  # label -> {start_btn, stop_btn}
         self.ssm_clients = {}
         self._autostart_triggered = False
-
         self.log_queue = queue.Queue()
+        self.logger = logging.getLogger()
+        handler = TextWidgetHandler(self.log_queue)
+        self.logger.addHandler(handler)
         self._setup_ui()
         self._load_config()
         self._render_connections()
@@ -130,9 +147,12 @@ class SSMPortForwarderGUI:
         )
         self.log_text.pack(fill="both", expand=True)
 
+        # Configure tags for formatting
+        self.log_text.tag_configure("bold", font=("TkDefaultFont", 10, "bold"))
+
         # Redirect stdout
-        sys.stdout = StdoutRedirector(self.log_text, self.log_queue)
-        sys.stderr = StdoutRedirector(self.log_text, self.log_queue)
+        sys.stdout = LoggerWriter(self.logger, logging.INFO)
+        sys.stderr = LoggerWriter(self.logger, logging.ERROR)
 
     def _load_config(self):
         try:
@@ -141,18 +161,25 @@ class SSMPortForwarderGUI:
             config, self.aws_sessions = loader.load_config()
             self.connections = config.get("connections", {})
             abs_path = os.path.abspath(config_path)
-            print(f"Loaded configuration from: {abs_path}")
+            self.logger.info(f"Got a successful configuration from: {abs_path}")
         except Exception as e:
-            print(f"Error loading config: {e}")
-            # Print real stacktrace to log
-            messagebox.showerror("Config Error", str(e))
+            self.logger.error(f"Error loading config: {e}")
+            if "(ExpiredToken)" in str(e):
+                messagebox.showerror(
+                    "Expired AWS token",
+                    "Your AWS credentials have expired. Please refresh your credentials, then reload the config",
+                )
+            else:
+                messagebox.showerror(
+                    "Configuration error", f"Failed to load configuration: {e}"
+                )
 
     def _reload_config(self):
         # Stop all sessions before reloading if necessary, or just update the list
         # For now, let's just reload the list. If a session is active, it stays active.
         self._load_config()
         self._render_connections()
-        print("Configuration reloaded.")
+        self.logger.info("Configuration reloaded.")
 
     def _render_connections(self):
         # Clear existing connections
@@ -243,25 +270,27 @@ class SSMPortForwarderGUI:
 
         def run():
             if connection["profile"]:
-                print(
+                self.logger.info(
                     f"Starting session for {label} using profile '{connection.get("profile")}'..."
                 )
             else:
-                print(f"Starting session for {label} using AWS default role...")
+                self.logger.info(
+                    f"Starting session for {label} using AWS default role..."
+                )
             try:
                 # Filter out 'profile' and 'link' from config before passing to start_session
                 sid = self.forwarder.start_session(
                     ssm_client=ssm_client, label=label, **connection
                 )
                 self.active_session_ids[label] = sid
-                print(f"Session started: {sid} for {label}")
+                self.logger.info(f"Session started: {sid} for {label}")
 
                 def update_ui():
                     self._update_ui_to_active(label)
 
                 self.root.after(0, update_ui)
             except Exception as e:
-                print(f"Failed to start {label}: {e}")
+                self.logger.warning(f"Failed to start {label}: {e}")
 
                 def reset_ui():
                     self.buttons[label]["start"].config(state="normal", text="Start")
@@ -273,13 +302,13 @@ class SSMPortForwarderGUI:
     def _stop_session(self, label):
         sid = self.active_session_ids.get(label)
         if sid:
-            print(f"Stopping session {sid} for {label}...")
+            self.logger.info(f"Stopping session {sid} for {label}...")
             self.buttons[label]["stop"].config(state="disabled", text="Stopping...")
 
             def run_stop():
                 if self.forwarder.stop_session(sid):
                     self.active_session_ids.pop(label, None)
-                    print(f"Session {sid} stopped.")
+                    self.logger.info(f"Session {sid} stopped.")
 
                 def update_ui():
                     self.buttons[label]["stop"].config(state="disabled", text="Stop")
@@ -293,7 +322,16 @@ class SSMPortForwarderGUI:
         while not self.log_queue.empty():
             msg = self.log_queue.get()
             self.log_text.config(state="normal")
-            self.log_text.insert(tk.END, msg)
+            # Parse and insert with bold for text within []
+            start = 0
+            for match in re.finditer(r"\[([^\]]+)\]", msg):
+                # Insert text before the match
+                self.log_text.insert(tk.END, msg[start : match.start()])
+                # Insert the [text] with bold tag
+                self.log_text.insert(tk.END, match.group(0), "bold")
+                start = match.end()
+            # Insert the remaining text
+            self.log_text.insert(tk.END, msg[start:])
             self.log_text.see(tk.END)
             self.log_text.config(state="disabled")
         self.root.after(100, self._process_logs)
@@ -308,6 +346,9 @@ class SSMPortForwarderGUI:
 
 
 if __name__ == "__main__":
+    # Set up logging
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
     root_tk = tk.Tk()
     app = SSMPortForwarderGUI(root_tk)
     root_tk.protocol("WM_DELETE_WINDOW", app.on_closing)

@@ -21,6 +21,7 @@ class TestSSMSession:
 
         session = SSMSession(
             mock_ssm,
+            logger=MagicMock(),
             check_connection=False,
             Target="i-123",
             DocumentName="test",
@@ -46,6 +47,7 @@ class TestSSMSession:
 
         session = SSMSession(
             mock_ssm,
+            logger=MagicMock(),
             Target="i-123",
             DocumentName="test",
             Parameters={"localPortNumber": ["8080"]},
@@ -71,7 +73,10 @@ class TestSSMSession:
         mock_socket_class.return_value = mock_sock
 
         session = SSMSession(
-            mock_ssm, Target="i-123", Parameters={"localPortNumber": ["8080"]}
+            mock_ssm,
+            logger=MagicMock(),
+            Target="i-123",
+            Parameters={"localPortNumber": ["8080"]},
         )
         with session:
             pass
@@ -107,6 +112,7 @@ class TestSSMSession:
 
         session = SSMSession(
             mock_ssm,
+            logger=MagicMock(),
             timeout=60,
             Target="i-123",
             Parameters={"localPortNumber": ["8080"]},
@@ -131,7 +137,10 @@ class TestSSMSession:
         mock_socket_class.return_value = mock_sock
 
         session = SSMSession(
-            mock_ssm, Target="i-123", Parameters={"localPortNumber": ["8080"]}
+            mock_ssm,
+            logger=MagicMock(),
+            Target="i-123",
+            Parameters={"localPortNumber": ["8080"]},
         )
         with pytest.raises(
             SSMPortForwardError, match="session-manager-plugin exited: Error output"
@@ -146,7 +155,7 @@ class TestSSMSession:
         mock_proc.wait.return_value = None
         mock_popen.return_value = mock_proc
 
-        session = SSMSession(mock_ssm)
+        session = SSMSession(mock_ssm, logger=MagicMock())
         session.session = {"SessionId": "test-id"}
         session.proc = mock_proc
 
@@ -163,7 +172,7 @@ class TestSSMSession:
         mock_proc.wait.side_effect = subprocess.TimeoutExpired("cmd", 5)
         mock_popen.return_value = mock_proc
 
-        session = SSMSession(mock_ssm)
+        session = SSMSession(mock_ssm, logger=MagicMock())
         session.session = {"SessionId": "test-id"}
         session.proc = mock_proc
 
@@ -175,14 +184,14 @@ class TestSSMSession:
 
     def test_log_with_label(self, capsys):
         mock_ssm = MagicMock()
-        session = SSMSession(mock_ssm, label="TestLabel")
+        mock_logger = MagicMock()
+        session = SSMSession(mock_ssm, logger=mock_logger, label="TestLabel")
         session._log("Test message")
-        captured = capsys.readouterr()
-        assert "[TestLabel] Test message" in captured.out
+        mock_logger.info.assert_called_with("[TestLabel] Test message")
 
     def test_log_without_label(self, capsys):
         mock_ssm = MagicMock()
-        session = SSMSession(mock_ssm)
+        mock_logger = MagicMock()
+        session = SSMSession(mock_ssm, logger=mock_logger)
         session._log("Test message")
-        captured = capsys.readouterr()
-        assert "Test message" in captured.out
+        mock_logger.info.assert_called_with("Test message")

@@ -1,11 +1,17 @@
+import logging
+
 import boto3
-from botocore.exceptions import NoCredentialsError, PartialCredentialsError
+from botocore.exceptions import NoCredentialsError, PartialCredentialsError, ClientError
 
 from src.exceptions import SSMPortForwardError
 
 
 class AWSSessions:
     def __init__(self):
+        # This is put here due to https://github.com/boto/botocore/issues/1841 -
+        # or maybe I should just not use the root logger.
+        boto3.set_stream_logger(name="botocore.credentials", level=logging.ERROR)
+
         self.sessions = {}
         self.default_session = None
 
@@ -40,7 +46,12 @@ class AWSSessions:
             sts = session.client("sts")
             sts.get_caller_identity()
             return session
-        except (NoCredentialsError, PartialCredentialsError, Exception) as e:
+        except (
+            NoCredentialsError,
+            PartialCredentialsError,
+            ClientError,
+            Exception,
+        ) as e:
             raise SSMPortForwardError(
                 f"Failed to create AWS session with profile '{profile_name}': {e}"
             )

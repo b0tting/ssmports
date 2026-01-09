@@ -168,3 +168,32 @@ class TestConfigLoader:
         mock_ecs_resolver.return_value.resolve_task_name.assert_called_once_with(
             "some-container", mock_session.client("ecs")
         )
+
+    @patch("src.config_loader.ECSIDResolver")
+    @patch("src.config_loader.AWSSessions")
+    def test_add_app_config_defaults(self, mock_aws_sessions, mock_ecs_resolver):
+        mock_aws_sessions.return_value = MagicMock()
+        mock_ecs_resolver.return_value = MagicMock()
+        loader = ConfigLoader("dummy.json")
+
+        # Test case 1: config without app_config
+        config1 = {"connections": {}}
+        loader.add_app_config_defaults(config1)
+        assert "app_config" in config1
+        assert config1["app_config"]["show_full_stacktrace"] is False
+
+        # Test case 2: config with empty app_config
+        config2 = {"app_config": {}, "connections": {}}
+        loader.add_app_config_defaults(config2)
+        assert config2["app_config"]["show_full_stacktrace"] is False
+
+        # Test case 3: config with existing app_config value
+        config3 = {"app_config": {"show_full_stacktrace": True}, "connections": {}}
+        loader.add_app_config_defaults(config3)
+        assert config3["app_config"]["show_full_stacktrace"] is True  # Not overwritten
+
+        # Test case 4: config with other app_config keys
+        config4 = {"app_config": {"other_key": "value"}, "connections": {}}
+        loader.add_app_config_defaults(config4)
+        assert config4["app_config"]["show_full_stacktrace"] is False
+        assert config4["app_config"]["other_key"] == "value"

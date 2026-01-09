@@ -1,6 +1,11 @@
 import json
+import logging
 import os
 import re
+
+import botocore
+from botocore.exceptions import NoCredentialsError, PartialCredentialsError, ClientError
+
 from .aws_sessions import AWSSessions
 from .ecs_id_resolver import ECSIDResolver
 
@@ -13,33 +18,35 @@ from .exceptions import SSMPortForwardError
 
 
 class ConfigLoader:
-    DEFAULT_CONFIG = """{
-      "profile": "my-jump-account",
-      "region": "eu-west-1",
-      "jump_instance": "my-bastion-container",
-      "connections": {
-        "Production Database": {
-          "target_host": "prod-db.cluster-xxxx.eu-west-1.rds.amazonaws.com",
-          "local_port": 5432,
-          "remote_port": 5432,
-          "autostart": true
+    DEFAULT_APP_SETTINGS = {"app_config": {"show_full_stacktrace": False}}
+
+    DEFAULT_CONFIG = {
+        "profile": "my-jump-account",
+        "region": "eu-west-1",
+        "jump_instance": "my-bastion-container",
+        "connections": {
+            "Production Database": {
+                "target_host": "prod-db.cluster-xxxx.eu-west-1.rds.amazonaws.com",
+                "local_port": 5432,
+                "remote_port": 5432,
+                "autostart": True,
+            },
+            "Staging Database": {
+                "target_host": "test-db.cluster-xxxx.eu-west-1.rds.amazonaws.com",
+                "local_port": 5433,
+                "remote_port": 5432,
+                "profile": "my-test-account",
+                "jump_instance": "i-0123456789abcdef0",
+            },
+            "Staging Database over ECS": {
+                "target_host": "test-db.cluster-xxxx.eu-west-1.rds.amazonaws.com",
+                "local_port": 5434,
+                "remote_port": 5432,
+                "profile": "my-test-account",
+                "jump_instance": "ecs:my-cluster_12345678901234567890123456789012_12345678901234567890123456789012-0151737364",
+            },
         },
-        "Staging Database": {
-          "target_host": "test-db.cluster-xxxx.eu-west-1.rds.amazonaws.com",
-          "local_port": 5433,
-          "remote_port": 5432,
-          "profile": "my-test-account",
-          "jump_instance": "i-0123456789abcdef0"
-        },
-        "Staging Database over ECS": {
-          "target_host": "test-db.cluster-xxxx.eu-west-1.rds.amazonaws.com",
-          "local_port": 5434,
-          "remote_port": 5432,
-          "profile": "my-test-account",
-          "jump_instance": "ecs:my-cluster_12345678901234567890123456789012_12345678901234567890123456789012-0151737364"
-        }
-      }
-    }"""
+    }
 
     SCHEMA = {
         "type": "object",
@@ -47,6 +54,12 @@ class ConfigLoader:
             "profile": {"type": "string"},
             "region": {"type": "string"},
             "jump_instance": {"type": "string"},
+            "app_config": {
+                "type": "object",
+                "properties": {
+                    "show_full_stacktrace": {"type": "boolean"},
+                },
+            },
             "connections": {
                 "type": "object",
                 "additionalProperties": {
@@ -112,13 +125,24 @@ class ConfigLoader:
             try:
                 self.validate_instance_id(instance_id)
             except SSMPortForwardError:
-                session = self.aws_sessions.get_session(
-                    profile_name=connection.get("profile"),
-                    region_name=connection.get("region"),
-                )
-                connection["jump_instance"] = self.ecs_id_resolver.resolve_task_name(
-                    connection["jump_instance"], session.client("ecs")
-                )
+                logger = logging.getLogger()
+                try:
+                    session = self.aws_sessions.get_session(
+                        profile_name=connection.get("profile"),
+                        region_name=connection.get("region"),
+                    )
+                    connection["jump_instance"] = (
+                        self.ecs_id_resolver.resolve_task_name(
+                            connection["jump_instance"], session.client("ecs")
+                        )
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"Error resolving instance ID from a container name: {e}"
+                    )
+                    raise SSMPortForwardError(
+                        f"Failed to create AWS session with profile '{connection.get("profile")}' due to AWS error: {e}"
+                    )
 
     def fold_defaults_into_connections(self, config):
         defaults = {}
@@ -135,11 +159,18 @@ class ConfigLoader:
     def create_default_config_file(self, config_path):
         if not os.path.exists(config_path):
             with open(config_path, "w") as f:
-                f.write(self.DEFAULT_CONFIG)
+                f.write(json.dumps(self.DEFAULT_CONFIG, indent=2))
             full_path = os.path.abspath(config_path)
             print(
                 f"No sessions.json found, created default configuration at {full_path}"
             )
+
+    def add_app_config_defaults(self, config):
+        if "app_config" not in config:
+            config["app_config"] = {}
+        for key, value in self.DEFAULT_APP_SETTINGS["app_config"].items():
+            if key not in config["app_config"]:
+                config["app_config"][key] = value
 
     def load_config(self):
         """Load and return the configuration from a JSON file."""
@@ -152,6 +183,7 @@ class ConfigLoader:
             except json.JSONDecodeError as e:
                 raise SSMPortForwardError(f"Failed to parse JSON config: {e}")
 
+        self.add_app_config_defaults(config)
         self.validate_schema(config)
         self.fold_defaults_into_connections(config)
         self.validate_no_double_ports(config)
