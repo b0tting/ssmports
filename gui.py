@@ -7,6 +7,7 @@ import queue
 import webbrowser
 import os
 import re
+import subprocess
 
 from src.aws_sessions import AWSSessions
 from src.forwarder import SSMPortForwarder
@@ -241,6 +242,20 @@ class SSMPortForwarderGUI:
 
                 self.buttons[label]["link"] = link_btn
 
+            # Command button if 'command' is in config
+            if "command" in config:
+                cmd_template = config["command"]
+                actual_cmd = cmd_template.format(
+                    local_port=config["local_port"], remote_port=config["remote_port"]
+                )
+                cmd_btn = tk.Button(
+                    frame,
+                    text="Run Command",
+                    command=lambda c=actual_cmd: subprocess.Popen(c, shell=True),
+                )
+                cmd_btn.pack(side="left", padx=5)
+                self.buttons[label]["command"] = cmd_btn
+
             # If already active (on reload), update UI
             if label in self.active_session_ids:
                 self._update_ui_to_active(label)
@@ -324,7 +339,7 @@ class SSMPortForwarderGUI:
             self.log_text.config(state="normal")
             # Parse and insert with bold for text within []
             start = 0
-            for match in re.finditer(r"\[([^\]]+)\]", msg):
+            for match in re.finditer(r"\[([^]]+)\]", msg):
                 # Insert text before the match
                 self.log_text.insert(tk.END, msg[start : match.start()])
                 # Insert the [text] with bold tag

@@ -108,7 +108,7 @@ You can also pull up the profile, region and jump instance from your AWS configu
 
 If a container name is used the tool will attempt to resolve the container to the underlying EC2 instance ID, optionally using the profile and region provided. It will take the first result if multiple containers with the same name are found.
 
-Here is a more complete example:
+Here is a more complete example showcasing multiple connections with different profiles, commands, and links:
 ```json
 {
   "profile": "my-jump-account",
@@ -126,6 +126,18 @@ Here is a more complete example:
       "remote_port": 5432,
       "profile": "my-test-account",
       "jump_instance": "ecs:my-cluster_12345678901234567890123456789012_12345678901234567890123456789012-0151737364"
+    },
+    "RDP to Windows host": {
+      "target_host": "10.0.0.1",
+      "local_port": 3388,
+      "remote_port": 3389,
+      "command": "mstsc /v:127.0.0.1:{local_port}"
+    },
+    "Web UI": {
+      "target_host": "10.0.0.1",
+      "local_port": 8080,
+      "remote_port": 80,
+      "link": "http://127.0.0.1:{local_port}"
     }
   }
 }
@@ -143,6 +155,7 @@ Here is a more complete example:
 | `profile`       | Connection / Root | No | AWS Profile to use to connect to the jump instance                                                                  |
 | `region`        | Connection / Root | No | AWS Region for the jump instance                                                                                    |
 | `link`          | Connection        | No | A URL that will appear as a clickable "Open Link" button. Supports `{local_port}` and `{remote_port}` placeholders. |
+| `command`       | Connection        | No | Adds a button with a command to run. Supports `{local_port}` and `{remote_port}` placeholders.                      |
 | `autostart`     | Connection        | No | If `true`, the session starts automatically when the GUI launches.                                                  |
 
 ## Usage
@@ -154,7 +167,7 @@ Here is a more complete example:
     python gui.py
     ```
 4.  Click **Start** to open a tunnel.
-5.  Click **Open Link** (if configured) to access the service.
+5.  Click **Open Link** or **Run Command** (if configured) to access the service.
 6.  Click **Reload Config** if you make changes to `sessions.json` while the app is running.
 
 ## Building a Standalone Executable
