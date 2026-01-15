@@ -71,7 +71,7 @@ If your role has admin access or a broad policy this won't be required, but if n
 }
 ```
 
-If your organization uses SAML-based authentication (like Okta or AD FS), it is recommended to use `saml2aws` to manage your credentials.
+If your organization uses SAML-based authentication (like Okta or AD FS), it is recommended to use `saml2aws` to manage your different accounts as AWS profiles.
 
 1.  **Configure saml2aws**: Run `saml2aws configure` to set up your identity provider details.
 2.  **Login**: Before starting the SSM Port Forwarder, authenticate using:
@@ -80,7 +80,7 @@ If your organization uses SAML-based authentication (like Okta or AD FS), it is 
     ```
 3.  **Verification**: Ensure your credentials are active by running `aws sts get-caller-identity --profile your-profile-name`.
 
-The SSM Port Forwarder will automatically use the active credentials for the profiles specified in your configuration.
+The SSM Port Forwarder will automatically use the active credentials for the profiles specified in your .aws/config file.
 
 ## Configuring sessions.json
 
@@ -88,7 +88,12 @@ The application relies on a `sessions.json` file in the root directory to define
 
 ### Example Configuration
 
-This is a simple configuration that defines a single connection to a production database through a bastion host:
+This is a simple configuration that defines a single connection to a production database through an EC2 machine. 
+
+This EC2 machine would:
+a) Allow SSM connections (have the SSM agent installed and an IAM role attached)
+b) Have network access to the RDS instance (e.g., be in the same VPC, have the right security groups, etc.)
+
 ```json
 {
   "connections": {
@@ -106,7 +111,7 @@ This is a simple configuration that defines a single connection to a production 
 
 You can also pull up the profile, region and jump instance from your AWS configuration to set them as defaults. The jump_instance can be either an EC2 instance ID, an ECS instance ID (see https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-sessions-start.html#sessions-remote-port-forwarding) or a specific container name. 
 
-If a container name is used the tool will attempt to resolve the container to the underlying EC2 instance ID, optionally using the profile and region provided. It will take the first result if multiple containers with the same name are found.
+If a container name is used the tool will attempt to resolve the container to the underlying ECS instance ID, optionally using the profile and region provided. It will take the first result if multiple containers with the same name are found.
 
 Here is a more complete example showcasing multiple connections with different profiles, commands, and links:
 ```json
