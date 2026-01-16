@@ -19,17 +19,27 @@ The core code was based on a Github request (https://github.com/boto/boto3/issue
 Before using this tool, ensure you have the following installed and configured:
 
 1.  **Python 3.12+**: Ensure Python is installed on your system.
-2.  **AWS CLI**: Installed and configured.
-3.  **SSM Session Manager Plugin**: This is required by AWS to handle the tunnel. [Install instructions here](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html).
-4.  **Dependencies**: Either use Poetry or install required Python packages with PIP:
-    ```bash
-    pip install boto3 jsonschema
-    ```
+2.  **AWS CLI**: Installed and configured, preferably AWS CLI v2. [Installation instructions here](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html).
+.  
+Optionally: 
+3. **SSM Session Manager Plugin**: Bundles with AWS CLI v2, a separate installation for AWS CLI v1 users. [Install instructions here](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html).
 
-### AWS Authentication with saml2aws
+### Bastion requirements
+You'll pivot off an existing system which will take your traffic and proxy it to another location. This is the "bastion" host, or "jump instance". There is a lot of documentation on how to set up an SSM-enabled bastion host ([for example](https://aws.amazon.com/blogs/mt/use-port-forwarding-in-aws-systems-manager-session-manager-to-connect-to-remote-hosts/)),
+but there are two main configuration concerns:
+
+*SSM agent should be installed and running*
+- For EC2 and managed instances this means the AmazonSSMManagedInstanceCore policy is attached to the instance role and the SSM agent is installed and running. On EC2 most modern Amazon Linux, Ubuntu and Windows AMIs have this pre-installed.
+- For ECS tasks, the AmazonECSTaskExecutionRolePolicy policy should be attached to the task role, and the SSM agent should be installed in the container image. On most linux instances Fargate will auto-inject the SSM agent.
+
+*Network access to the target host*
+- The bastion host must have network access to the target host and port you wish to connect to. For example, if connecting to an RDS instance, ensure the bastion is in the same VPC or has routing access, and that security groups allow the traffic.
+- If using ECS, also ensure the task has the VPC-enabled networking mode (awsvpc) 
+
+### AWS policies and profiles
 
 #### Role configuration
-If your role has admin access or a broad policy this won't be required, but if not: Your role needs access to the startSession permission and specifically to the `ssm:StartSession` action. Here is an example IAM policy as taken from https://repost.aws/questions/QUMa9_kum3Sk-fg4TL6sPfZg/policy-for-ssm-port-forwarding-session-to-remote-host:  
+If the role you use to run the AWS CLI with has admin access or a broad policy this won't be required, but if not: Your role needs access to the startSession permission and specifically to the `ssm:StartSession` action. [Here](https://repost.aws/questions/QUMa9_kum3Sk-fg4TL6sPfZg/policy-for-ssm-port-forwarding-session-to-remote-host) is an example IAM policy:  
 
 ```json
 {
@@ -41,9 +51,9 @@ If your role has admin access or a broad policy this won't be required, but if n
                 "ssm:StartSession"
             ],
             "Resource": [
-                "arn:aws:ec2:ap-southeast-1:yyyyyyyyyyy:instance/i-55555555555555555",
-                "arn:aws:ssm:ap-southeast-1:yyyyyyyyyyy:document/SSM-SessionManagerRunShell",
-                "arn:aws:ssm:ap-southeast-1::document/AWS-StartPortForwardingSessionToRemoteHost"
+                "arn:aws:ec2:eu-west-1:your-account-id:instance/your-ec2-instance-id",
+                "arn:aws:ecs:eu-west-1:your-account-id:task/your-cluster-name/*",
+                "arn:aws:ssm:eu-west-1::document/AWS-StartPortForwardingSessionToRemoteHost"
             ]
         },
         {
@@ -71,7 +81,10 @@ If your role has admin access or a broad policy this won't be required, but if n
 }
 ```
 
-If your organization uses SAML-based authentication (like Okta or AD FS), it is recommended to use `saml2aws` to manage your different accounts as AWS profiles.
+#### Profiles and saml2aws
+This tool assumes you are using profiles configured in your AWS CLI configuration file (`~/.aws/config` and `~/.aws/credentials`).
+
+If your organization uses SAML-based authentication (like Okta or AD FS), I recommend to use `saml2aws` [here](https://github.com/Versent/saml2aws) or a similar tool to manage your different accounts as AWS profiles.
 
 1.  **Configure saml2aws**: Run `saml2aws configure` to set up your identity provider details.
 2.  **Login**: Before starting the SSM Port Forwarder, authenticate using:
@@ -80,11 +93,11 @@ If your organization uses SAML-based authentication (like Okta or AD FS), it is 
     ```
 3.  **Verification**: Ensure your credentials are active by running `aws sts get-caller-identity --profile your-profile-name`.
 
-The SSM Port Forwarder will automatically use the active credentials for the profiles specified in your .aws/config file.
+This tool will reference these profiles when establishing connections.
 
 ## Configuring sessions.json
 
-The application relies on a `sessions.json` file in the root directory to define your connections. A template is provided in `sessions.json.example`.
+The application relies on a `sessions.json` file in it's working directory to define your connections. A template is provided in `sessions.json.example`.
 
 ### Example Configuration
 
@@ -109,9 +122,13 @@ b) Have network access to the RDS instance (e.g., be in the same VPC, have the r
 }
 ```
 
-You can also pull up the profile, region and jump instance from your AWS configuration to set them as defaults. The jump_instance can be either an EC2 instance ID, an ECS instance ID (see https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-sessions-start.html#sessions-remote-port-forwarding) or a specific container name. 
+You can also set the profile, region and jump instance as root level attributes to set them as defaults for every connection. 
 
-If a container name is used the tool will attempt to resolve the container to the underlying ECS instance ID, optionally using the profile and region provided. It will take the first result if multiple containers with the same name are found.
+The jump_instance can be: 
+- An EC2 instance ID (i-1234567890)
+- An SSM fleet manager managed instance ID (mi-1234567890)
+- An ECS instance ID (see [this bit](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-sessions-start.html#sessions-remote-port-forwarding) for the specific mark-up) 
+- An ECS container name. This tool will attempt to resolve the container to the ECS instance ID from the profile and region provided. It will take the first result if multiple containers with the same name are found.  
 
 Here is a more complete example showcasing multiple connections with different profiles, commands, and links:
 ```json
@@ -150,24 +167,24 @@ Here is a more complete example showcasing multiple connections with different p
 
 ### Attributes
 
-| Attribute       | Level             | Required | Description                                                                                                         |
-|:----------------|:------------------| :--- |:--------------------------------------------------------------------------------------------------------------------|
-| `connections`   | Root              | Yes | A dictionary of connection objects. The key is the label shown in the UI.                                           |
-| `target_host`   | Connection        | Yes | The remote hostname or IP to connect to (e.g., RDS endpoint).                                                       |
-| `local_port`    | Connection        | Yes | The port on your local machine to bind the tunnel to.                                                               |
-| `remote_port`   | Connection        | Yes | The port on the remote host to forward to.                                                                          |
-| `jump_instance` | Connection / Root | Yes | The ID of the SSM-enabled EC2 instance acting as the bastion.                                                       |
-| `profile`       | Connection / Root | No | AWS Profile to use to connect to the jump instance                                                                  |
-| `region`        | Connection / Root | No | AWS Region for the jump instance                                                                                    |
-| `link`          | Connection        | No | A URL that will appear as a clickable "Open Link" button. Supports `{local_port}` and `{remote_port}` placeholders. |
-| `command`       | Connection        | No | Adds a button with a command to run. Supports `{local_port}` and `{remote_port}` placeholders.                      |
-| `autostart`     | Connection        | No | If `true`, the session starts automatically when the GUI launches.                                                  |
+| Attribute       | Level             | Required | Description                                                                                                                     |
+|:----------------|:------------------| :--- |:--------------------------------------------------------------------------------------------------------------------------------|
+| `connections`   | Root              | Yes | A dictionary of connection objects. The key is the label shown in the UI.                                                       |
+| `target_host`   | Connection        | Yes | The remote hostname or IP to connect to (e.g., RDS endpoint).                                                                   |
+| `local_port`    | Connection        | Yes | The port on your local machine to bind the tunnel to.                                                                           |
+| `remote_port`   | Connection        | Yes | The port on the remote host to forward to.                                                                                      |
+| `jump_instance` | Connection / Root | Yes | The ID of the SSM-enabled instance acting as the bastion. Can be an EC2, SSM managed instance,  ECS instance or container name. |
+| `profile`       | Connection / Root | No | AWS Profile to use to connect to the jump instance                                                                              |
+| `region`        | Connection / Root | No | AWS Region for the jump instance                                                                                                |
+| `link`          | Connection        | No | A URL that will appear as a clickable "Open Link" button. Supports `{local_port}` and `{remote_port}` placeholders.             |
+| `command`       | Connection        | No | Adds a button with a command to run. Supports `{local_port}` and `{remote_port}` placeholders.                                  |
+| `autostart`     | Connection        | No | If `true`, the session starts automatically when the GUI launches.                                                              |
 
 ## Usage
 
 1.  Create your `sessions.json` file (you can use `sessions.json.example` as a starting point).
 2.  Authenticate with AWS (e.g., using `saml2aws login`).
-3.  Run the application:
+3.  Run the application, either the release executable or via Python:
     ```bash
     python gui.py
     ```
