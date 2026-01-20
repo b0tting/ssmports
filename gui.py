@@ -185,7 +185,7 @@ class SSMPortForwarderGUI:
         # Sync active sessions from forwarder
         self.active_session_ids = {
             session.label: sid
-            for sid, session in self.forwarder.sessions.items()
+            for sid, session in self.forwarder.active_sessions.items()
             if hasattr(session, "label")
         }
         self._render_connections()
