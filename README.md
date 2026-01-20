@@ -140,13 +140,15 @@ Here is a more complete example showcasing multiple connections with different p
     "Production Database": {
       "target_host": "prod-db.cluster-xxxx.eu-west-1.rds.amazonaws.com",
       "local_port": 5432,
-      "remote_port": 5432
+      "remote_port": 5432,
+      "group": "Databases"
     },
     "Staging Database": {
       "target_host": "test-db.cluster-xxxx.eu-west-1.rds.amazonaws.com",
       "local_port": 5433,
       "remote_port": 5432,
       "profile": "my-test-account",
+      "group": "Databases",
       "jump_instance": "ecs:my-cluster_12345678901234567890123456789012_12345678901234567890123456789012-0151737364"
     },
     "RDP to Windows host": {
@@ -179,6 +181,7 @@ Here is a more complete example showcasing multiple connections with different p
 | `link`          | Connection        | No | A URL that will appear as a clickable "Open Link" button. Supports `{local_port}` and `{remote_port}` placeholders.             |
 | `command`       | Connection        | No | Adds a button with a command to run. Supports `{local_port}` and `{remote_port}` placeholders.                                  |
 | `autostart`     | Connection        | No | If `true`, the session starts automatically when the GUI launches.                                                              |
+| 'group`        | Connection        | No | If set, connections with the same group will be visually grouped together in the UI.                                            |
 
 ## Usage
 

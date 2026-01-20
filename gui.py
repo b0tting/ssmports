@@ -65,6 +65,9 @@ class SSMPortForwarderGUI:
         self.connections = {}
         self.active_session_ids = {}  # label -> session_id
         self.buttons = {}  # label -> {start_btn, stop_btn}
+        self.group_frames = (
+            {}
+        )  # group_label -> {'frame': sub_frame, 'label': toggle_label, 'connections': [labels]}
         self.ssm_clients = {}
         self._autostart_triggered = False
         self.log_queue = queue.Queue()
@@ -179,6 +182,12 @@ class SSMPortForwarderGUI:
         # Stop all sessions before reloading if necessary, or just update the list
         # For now, let's just reload the list. If a session is active, it stays active.
         self._load_config()
+        # Sync active sessions from forwarder
+        self.active_session_ids = {
+            session.label: sid
+            for sid, session in self.forwarder.sessions.items()
+            if hasattr(session, "label")
+        }
         self._render_connections()
         self.logger.info("Configuration reloaded.")
 
@@ -187,16 +196,25 @@ class SSMPortForwarderGUI:
         for widget in self.connections_container.winfo_children():
             widget.destroy()
         self.buttons = {}
+        self.group_frames = {}
 
-        # Sort labels for consistent display
-        sorted_labels = sorted(self.connections.keys())
+        from collections import defaultdict
 
-        for label in sorted_labels:
-            config = self.connections[label]
+        groups = defaultdict(list)
+        singles = []
+        for conn_label, config in self.connections.items():
+            if "group" in config:
+                groups[config["group"]].append(conn_label)
+            else:
+                singles.append(conn_label)
+
+        # Draw singles
+        for conn_label in sorted(singles):
+            config = self.connections[conn_label]
             frame = tk.Frame(self.connections_container)
             frame.pack(fill="x", pady=2)
 
-            lbl = tk.Label(frame, text=label, width=40, anchor="w")
+            lbl = tk.Label(frame, text=conn_label, width=40, anchor="w")
             lbl.pack(side="left")
 
             port_lbl = tk.Label(
@@ -208,7 +226,7 @@ class SSMPortForwarderGUI:
                 frame,
                 text="Start",
                 width=10,
-                command=lambda l=label: self._start_session(l),
+                command=lambda l=conn_label: self._start_session(l),
             )
             start_btn.pack(side="left", padx=5)
 
@@ -217,11 +235,11 @@ class SSMPortForwarderGUI:
                 text="Stop",
                 width=10,
                 state="disabled",
-                command=lambda l=label: self._stop_session(l),
+                command=lambda l=conn_label: self._stop_session(l),
             )
             stop_btn.pack(side="left", padx=5)
 
-            self.buttons[label] = {
+            self.buttons[conn_label] = {
                 "start": start_btn,
                 "stop": stop_btn,
             }
@@ -240,9 +258,9 @@ class SSMPortForwarderGUI:
                     "<Button-1>", lambda e, url=actual_link: webbrowser.open(url)
                 )
 
-                self.buttons[label]["link"] = link_btn
+                self.buttons[conn_label]["link"] = link_btn
 
-            # Command button if 'command' is in config
+            # Command button if 'command' in config
             if "command" in config:
                 cmd_template = config["command"]
                 actual_cmd = cmd_template.format(
@@ -254,11 +272,139 @@ class SSMPortForwarderGUI:
                     command=lambda c=actual_cmd: subprocess.Popen(c, shell=True),
                 )
                 cmd_btn.pack(side="left", padx=5)
-                self.buttons[label]["command"] = cmd_btn
+                self.buttons[conn_label]["command"] = cmd_btn
 
             # If already active (on reload), update UI
-            if label in self.active_session_ids:
-                self._update_ui_to_active(label)
+            if conn_label in self.active_session_ids:
+                self._update_ui_to_active(conn_label)
+
+        # Draw groups
+        for group_label in sorted(groups.keys()):
+            conn_labels = groups[group_label]
+            has_autostart = any(
+                self.connections[cl].get("autostart") for cl in conn_labels
+            )
+
+            group_frame = tk.Frame(self.connections_container)
+            group_frame.pack(fill="x", pady=2)
+
+            arrow = "▼" if has_autostart else "▶"
+            toggle_label = tk.Label(
+                group_frame,
+                text=f"{arrow} {group_label} ({len(conn_labels)})",
+                fg="blue",
+                cursor="hand2",
+                anchor="w",
+                font=("TkDefaultFont", 10, "underline"),
+            )
+            toggle_label.pack(side="top", anchor="w")
+            toggle_label.bind(
+                "<Button-1>", lambda e, gl=group_label: self._toggle_group(gl)
+            )
+
+            sub_frame = tk.Frame(group_frame)
+            self.group_frames[group_label] = {
+                "frame": sub_frame,
+                "label": toggle_label,
+                "connections": conn_labels,
+                "expanded": has_autostart,
+            }
+
+            # Draw connections in sub_frame
+            for cl in sorted(conn_labels):
+                config = self.connections[cl]
+                frame = tk.Frame(sub_frame)
+                frame.pack(
+                    fill="x", pady=2
+                )  # Left-aligned like non-grouped connections
+
+                lbl = tk.Label(frame, text=cl, width=40, anchor="w")
+                lbl.pack(side="left")
+
+                port_lbl = tk.Label(
+                    frame, text=f"Port {config['local_port']}", width=10, anchor="w"
+                )
+                port_lbl.pack(side="left")
+
+                start_btn = tk.Button(
+                    frame,
+                    text="Start",
+                    width=10,
+                    command=lambda l=cl: self._start_session(l),
+                )
+                start_btn.pack(side="left", padx=5)
+
+                stop_btn = tk.Button(
+                    frame,
+                    text="Stop",
+                    width=10,
+                    state="disabled",
+                    command=lambda l=cl: self._stop_session(l),
+                )
+                stop_btn.pack(side="left", padx=5)
+
+                self.buttons[cl] = {
+                    "start": start_btn,
+                    "stop": stop_btn,
+                }
+
+                # Link
+                if "link" in config:
+                    link_template = config["link"]
+                    actual_link = link_template.format(
+                        local_port=config["local_port"],
+                        remote_port=config["remote_port"],
+                    )
+                    link_btn = tk.Label(
+                        frame, text="Open Link", fg="blue", cursor="hand2", padx=5
+                    )
+                    link_btn.pack(side="left")
+                    link_btn.bind(
+                        "<Button-1>", lambda e, url=actual_link: webbrowser.open(url)
+                    )
+
+                    self.buttons[cl]["link"] = link_btn
+
+                # Command button if 'command' is in config
+                if "command" in config:
+                    cmd_template = config["command"]
+                    actual_cmd = cmd_template.format(
+                        local_port=config["local_port"],
+                        remote_port=config["remote_port"],
+                    )
+                    cmd_btn = tk.Button(
+                        frame,
+                        text="Run Command",
+                        command=lambda c=actual_cmd: subprocess.Popen(c, shell=True),
+                    )
+                    cmd_btn.pack(side="left", padx=5)
+                    self.buttons[cl]["command"] = cmd_btn
+
+                # If already active (on reload), update UI
+                if cl in self.active_session_ids:
+                    self._update_ui_to_active(cl)
+
+            if has_autostart:
+                sub_frame.pack(side="top", fill="x")
+
+    def _toggle_group(self, group_label):
+        """Collapse or expand a group of connections."""
+        group_data = self.group_frames[group_label]
+        sub_frame = group_data["frame"]
+        if sub_frame.winfo_ismapped():
+            # If mapped, we need to unmap (collapse) it
+            sub_frame.pack_forget()
+            group_data["expanded"] = False
+            group_data["label"].config(
+                text=f"▶ {group_label} ({len(group_data['connections'])})"
+            )
+        else:
+            # If not mapped, we map it (expand)
+            sub_frame.pack(side="top", fill="x")
+            group_data["expanded"] = True
+            group_data["label"].config(
+                text=f"▼ {group_label} ({len(group_data['connections'])})"
+            )
 
     def _autostart_sessions(self):
         """Start any sessions marked with autostart on initial launch."""
@@ -274,8 +420,23 @@ class SSMPortForwarderGUI:
         self.buttons[label]["start"].config(state="disabled", text="Start")
         self.buttons[label]["stop"].config(state="normal", text="Stop")
 
+    def _is_local_port_in_use(self, label):
+        local_port = self.connections[label]["local_port"]
+        for active_label in self.active_session_ids:
+            if label != active_label:
+                active_local_port = self.connections[active_label]["local_port"]
+                if local_port == active_local_port:
+                    return active_label
+        return None
+
     def _start_session(self, label):
         connection = self.connections[label]
+        if active_label := self._is_local_port_in_use(label):
+            messagebox.showwarning(
+                "Port Conflict",
+                f"Local port {connection['local_port']} is already in use by connection '{active_label}'.",
+            )
+            return
         session = self.aws_sessions.get_session(
             profile_name=connection["profile"], region_name=connection.get("region")
         )
@@ -286,14 +447,13 @@ class SSMPortForwarderGUI:
         def run():
             if connection["profile"]:
                 self.logger.info(
-                    f"Starting session for {label} using profile '{connection.get("profile")}'..."
+                    f"Starting session for {label} using profile '{connection.get('profile')}'..."
                 )
             else:
                 self.logger.info(
                     f"Starting session for {label} using AWS default role..."
                 )
             try:
-                # Filter out 'profile' and 'link' from config before passing to start_session
                 sid = self.forwarder.start_session(
                     ssm_client=ssm_client, label=label, **connection
                 )
@@ -315,6 +475,7 @@ class SSMPortForwarderGUI:
         threading.Thread(target=run, daemon=True).start()
 
     def _stop_session(self, label):
+        connection = self.connections[label]
         sid = self.active_session_ids.get(label)
         if sid:
             self.logger.info(f"Stopping session {sid} for {label}...")

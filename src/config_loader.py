@@ -95,17 +95,6 @@ class ConfigLoader:
         except jsonschema.exceptions.ValidationError as e:
             raise SSMPortForwardError(f"Configuration validation failed: {e.message}")
 
-    def validate_no_double_ports(self, config):
-        local_ports = []
-        connections = config.get("connections", {})
-        for name, conn in connections.items():
-            port = conn.get("local_port")
-            if port in local_ports:
-                raise SSMPortForwardError(
-                    f"Duplicate local_port found: {port} in connection '{name}'"
-                )
-            local_ports.append(port)
-
     def validate_instance_id(self, instance_id):
         ec2_instance_regex = r"^i-[0-9a-fA-F]{8,17}$"
         # See https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-sessions-start.html
@@ -186,7 +175,6 @@ class ConfigLoader:
         self.add_app_config_defaults(config)
         self.validate_schema(config)
         self.fold_defaults_into_connections(config)
-        self.validate_no_double_ports(config)
         self.validate_or_load_instance_ids(config)
 
         return config, self.aws_sessions
